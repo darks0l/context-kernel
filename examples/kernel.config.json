@@ -1,0 +1,49 @@
+{
+  "router": {
+    "tokenCompressionThreshold": 10000,
+    "allowPremiumEscalation": true,
+    "modelRegistry": {
+      "local_text": { "provider": "ollama", "model": "lfm2:latest" },
+      "local_vision": { "provider": "ollama", "model": "qwen3-vl:latest" },
+      "premium": { "provider": "anthropic", "model": "claude-sonnet-4-6" }
+    },
+    "routeMap": {
+      "textDefault": "local_text",
+      "multimodal": "local_vision",
+      "urgent": "premium",
+      "codeHighContext": "premium",
+      "premiumFallback": "premium"
+    }
+  }
+  "policy": {
+    "postOnlyMode": false,
+    "quietHours": {
+      "startHour": 23,
+      "endHour": 8,
+      "timezone": "America/Indianapolis"
+    },
+    "blockedSecretPatterns": [
+      "api[_-]?key",
+      "password",
+      "token",
+      "secret",
+      "AKIA[0-9A-Z]{16}"
+    ],
+    "rules": [
+      {
+        "id": "safe-action-scope",
+        "kind": "action_allowlist",
+        "actions": ["send", "post", "tool_call"],
+        "severity": "medium",
+        "reason": "Only low-risk actions are allowed in this environment"
+      },
+      {
+        "id": "night-silence",
+        "kind": "quiet_hours",
+        "startHour": 23,
+        "endHour": 8,
+        "severity": "low"
+      }
+    ]
+  }
+}

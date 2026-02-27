@@ -1,0 +1,14 @@
+{
+  "sessionId": "demo-session",
+  "timestamp": "2026-02-27T12:00:00.000Z",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Remember I prefer terse updates and help me refactor this TypeScript repo"
+    }
+  ],
+  "estimatedTokens": 12450,
+  "metadata": {
+    "requestedActions": ["post"]
+  }
+}

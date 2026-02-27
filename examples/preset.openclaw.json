@@ -1,0 +1,35 @@
+{
+  "router": {
+    "tokenCompressionThreshold": 10000,
+    "allowPremiumEscalation": true,
+    "modelRegistry": {
+      "local_text": { "provider": "ollama", "model": "lfm2:latest" },
+      "local_vision": { "provider": "ollama", "model": "qwen3-vl:latest" },
+      "premium": { "provider": "anthropic", "model": "claude-sonnet-4-6" }
+    },
+    "routeMap": {
+      "textDefault": "local_text",
+      "multimodal": "local_vision",
+      "urgent": "premium",
+      "codeHighContext": "premium",
+      "premiumFallback": "premium"
+    }
+  }
+  "policy": {
+    "postOnlyMode": false,
+    "blockedSecretPatterns": [
+      "api[_-]?key",
+      "password",
+      "secret",
+      "AKIA[0-9A-Z]{16}"
+    ],
+    "rules": [
+      {
+        "id": "openclaw-safe-actions",
+        "kind": "action_allowlist",
+        "actions": ["send", "post", "tool_call", "store_memory"],
+        "severity": "medium"
+      }
+    ]
+  }
+}

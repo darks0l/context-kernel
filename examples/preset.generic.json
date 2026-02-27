@@ -1,0 +1,30 @@
+{
+  "router": {
+    "tokenCompressionThreshold": 8000,
+    "allowPremiumEscalation": false,
+    "modelRegistry": {
+      "text": { "model": "your-default-text-model" },
+      "vision": { "model": "your-default-vision-model" }
+    },
+    "routeMap": {
+      "textDefault": "text",
+      "multimodal": "vision"
+    }
+  }
+  "policy": {
+    "postOnlyMode": false,
+    "blockedSecretPatterns": [
+      "api[_-]?key",
+      "password",
+      "secret"
+    ],
+    "rules": [
+      {
+        "id": "generic-safe-actions",
+        "kind": "action_allowlist",
+        "actions": ["send", "tool_call", "store_memory"],
+        "severity": "medium"
+      }
+    ]
+  }
+}
