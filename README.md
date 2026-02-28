@@ -1,6 +1,6 @@
 # context-kernel
 
-![DARKSOL](./assets/darksol-logo.svg)
+![DARKSOL](./assets/darksol-logo.png)
 Built by DARKSOL 🌑
 
 Platform-agnostic context routing kernel for agent runtimes: route decisions, token-budget guards, policy checks, and audit events.
@@ -114,3 +114,4 @@ This repo does not publish benchmark numbers. Runtime cost depends on rule count
 - Architecture details: `ARCHITECTURE.md`
 - Security policy: `SECURITY.md`
 - GitHub: <https://github.com/darks0l/context-kernel>
+
