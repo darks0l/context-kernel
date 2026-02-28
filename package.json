@@ -48,6 +48,14 @@
   ],
   "author": "Darksol",
   "license": "MIT",
+  "homepage": "https://github.com/darks0l/context-kernel#readme",
+  "bugs": {
+    "url": "https://github.com/darks0l/context-kernel/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/darks0l/context-kernel.git"
+  },
   "dependencies": {
     "zod": "^3.24.1"
   },

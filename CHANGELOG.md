@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+- docs: retrofit README to SHIP_STANDARD format with validated quickstart and configuration table
+- chore: add MIT LICENSE file
+- chore: add repository metadata fields (`homepage`, `bugs`, `repository`) to package.json
+
 ## 0.1.0
 - Initial Context Kernel MVP
 - Core routing + token budget compression trigger
