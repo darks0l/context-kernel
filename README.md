@@ -1,4 +1,8 @@
 # context-kernel
+
+![DARKSOL](./assets/darksol-logo.svg)
+Built by DARKSOL 🌑
+
 Platform-agnostic context routing kernel for agent runtimes: route decisions, token-budget guards, policy checks, and audit events.
 
 ![npm](https://img.shields.io/npm/v/context-kernel)
