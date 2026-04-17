@@ -13,14 +13,25 @@ import type {
   PolicyVerdict,
   PolicyRule
 } from "./types.js";
+import { AuditPipeline, JsonlAuditBackend, WebhookAuditBackend } from "../audit/index.js";
 
 export class ContextKernel {
   private readonly config: KernelConfig;
   private readonly hooks: KernelHooks;
+  private readonly audit: AuditPipeline;
 
   constructor(config: KernelConfig, hooks: KernelHooks = {}) {
     this.config = kernelConfigSchema.parse(config);
     this.hooks = hooks;
+
+    // Wire up audit pipeline from config
+    const backends = [];
+    if (this.config.audit?.backend === "jsonl" && this.config.audit.path) {
+      backends.push(new JsonlAuditBackend(this.config.audit.path));
+    } else if (this.config.audit?.backend === "webhook" && this.config.audit.url) {
+      backends.push(new WebhookAuditBackend(this.config.audit.url, this.config.audit.headers));
+    }
+    this.audit = new AuditPipeline(backends);
   }
 
   async decide(input: KernelInput): Promise<KernelDecision> {
@@ -91,7 +102,13 @@ export class ContextKernel {
       detail: { route, compress, actionCount: actions.length }
     });
 
+    await this.audit.flush();
     return decision;
+  }
+
+  private async emit(event: KernelEvent): Promise<void> {
+    if (this.hooks.onEvent) await this.hooks.onEvent(event);
+    await this.audit.append(event);
   }
 
   private classifyInputKind(input: KernelInput): InputKind {
@@ -255,9 +272,5 @@ export class ContextKernel {
         }
       }
     ];
-  }
-
-  private async emit(event: KernelEvent): Promise<void> {
-    if (this.hooks.onEvent) await this.hooks.onEvent(event);
   }
 }

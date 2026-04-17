@@ -114,6 +114,14 @@ export interface PolicyConfig {
 export interface KernelConfig {
   router: RouterConfig;
   policy: PolicyConfig;
+  audit?: AuditConfig;
+}
+
+export interface AuditConfig {
+  backend: "jsonl" | "webhook";
+  path?: string;
+  url?: string;
+  headers?: Record<string, string>;
 }
 
 export interface KernelHooks {
