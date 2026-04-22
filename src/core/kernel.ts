@@ -8,6 +8,10 @@ import {
   evaluateSelfCheck,
   DEFAULT_SELF_CHECK_QUESTIONS,
 } from "./identity-drift.js";
+import { MemoryManager, defaultMemoryConfig, type KernelStorageAdapter, type MemorySnapshot } from "./memory-manager.js";
+import type { CompactionConfig } from "./memory-manager.js";
+import type { CompactionResult } from "./compaction.js";
+import { getCompactPrompt, formatCompactSummary } from "./compaction.js";
 import type {
   KernelConfig,
   KernelDecision,
@@ -35,6 +39,9 @@ export class ContextKernel {
   private decisionCount = 0;
   private identitySnapshot: IdentitySnapshot | null = null;
   private readonly driftConfig: IdentityDriftConfig | null;
+  private readonly memory: MemoryManager;
+  private readonly memoryConfig: Required<import("./memory-manager.js").MemoryConfig>;
+  private readonly compactionConfig: CompactionConfig;
 
   constructor(config: KernelConfig, hooks: KernelHooks = {}) {
     this.config = kernelConfigSchema.parse(config);
@@ -55,10 +62,31 @@ export class ContextKernel {
         "1.0"
       );
     }
+
+    // Memory manager — merged config with defaults
+    const memCfg = { ...defaultMemoryConfig, ...config.memory };
+    this.memoryConfig = memCfg as Required<import("./memory-manager.js").MemoryConfig>;
+    this.compactionConfig = {
+      contextWindow: this.config.router.tokenCompressionThreshold,
+      maxOutputTokens: 20_000,
+      autoCompactEnabled: true,
+    };
+    this.memory = new MemoryManager(this.memoryConfig, this.driftConfig, this.compactionConfig);
   }
 
   async decide(input: KernelInput): Promise<KernelDecision> {
     await this.emit({ event: "started", timestamp: new Date().toISOString(), sessionId: input.sessionId });
+
+    // Feed incoming messages into the memory window
+    this.memory.ingest(input.messages);
+    this.memory.incrementDecisions();
+
+    // Check if compaction should run (non-blocking, fire-and-forget)
+    if (this.memory.shouldCompact()) {
+      this.runCompaction().catch((err) => {
+        this.emit({ event: "memory_compaction_failed", timestamp: new Date().toISOString(), sessionId: input.sessionId, detail: { error: String(err) } });
+      });
+    }
 
     const inputKind = this.classifyInputKind(input);
     const taskType = this.classifyTaskType(input);
@@ -202,6 +230,7 @@ export class ContextKernel {
     this.decisionCount++;
 
     const actions = this.planActions(input, blocked?.[0], identityInjection);
+    const latestSnapshot = this.memory.getLatestSnapshot();
 
     const decision: KernelDecision = {
       inputKind,
@@ -215,6 +244,12 @@ export class ContextKernel {
       driftVerdict,
       identityInjection,
       selfCheckResult,
+      memorySnapshot: latestSnapshot ? {
+        version: latestSnapshot.version,
+        summary: latestSnapshot.summary,
+        driftScore: latestSnapshot.driftScore,
+        memoryEntryCount: latestSnapshot.memoryEntries.length,
+      } : undefined,
     };
 
     await this.emit({
@@ -226,6 +261,72 @@ export class ContextKernel {
 
     await this.audit.flush();
     return decision;
+  }
+
+  /**
+   * Periodic tick — call from harness heartbeat (e.g. every 30s).
+   * Non-blocking. Runs memory housekeeping and auto-compaction if needed.
+   */
+  async tick(): Promise<{ needsCompaction: boolean; snapshotCount: number; windowSize: number; version: string }> {
+    const status = this.memory.tick();
+    if (status.needsCompaction) {
+      this.runCompaction().catch(() => {});
+    }
+    return { ...status, version: this.memory.getVersion() };
+  }
+
+  /**
+   * Trigger compaction manually. Harness can call this to force a compaction.
+   * The harness provides the summarization function (LLM call is harness's responsibility).
+   */
+  async compact(
+    summarize: (messages: Array<{ role: string; content: string }>, config: CompactionConfig) => Promise<CompactionResult>,
+  ): Promise<MemorySnapshot> {
+    const snapshot = await this.memory.compact(summarize);
+    if (this.hooks.onMemorySnapshot) {
+      await this.hooks.onMemorySnapshot(snapshot);
+    }
+    return snapshot;
+  }
+
+  /** Get the latest memory snapshot */
+  getMemorySnapshot(): MemorySnapshot | null {
+    return this.memory.getLatestSnapshot();
+  }
+
+  /** Get current memory version string */
+  getMemoryVersion(): string {
+    return this.memory.getVersion();
+  }
+
+  /** Get diff between two memory versions */
+  async getMemoryDiff(from: string, to: string) {
+    return this.memory.getMemoryDiff(from, to);
+  }
+
+  private async runCompaction(): Promise<void> {
+    // Default summarization — harness should override via onSummarize
+    const summarize = async (messages: Array<{ role: string; content: string }>, config: import("./compaction.js").CompactionConfig): Promise<CompactionResult> => {
+      if (this.hooks.onSummarize) {
+        const raw = await this.hooks.onSummarize(messages, getCompactPrompt());
+        return { summary: formatCompactSummary(raw), tokensFreed: Math.floor(raw.length / 4), method: "full" as const };
+      }
+      // Fallback: simple truncation (no LLM needed)
+      const text = messages.map((m) => `${m.role}: ${m.content}`).join("\n");
+      const truncated = text.slice(-3000);
+      return { summary: `[Summary of ${messages.length} messages]\n${truncated}`, tokensFreed: Math.floor((text.length - truncated.length) / 4), method: "partial" as const };
+    };
+
+    const snapshot = await this.memory.compact(summarize);
+    await this.emit({
+      event: "memory_compacted",
+      timestamp: new Date().toISOString(),
+      sessionId: "",
+      detail: { version: snapshot.version, parent: snapshot.parent, messagesCompacted: snapshot.messagesCompacted, driftScore: snapshot.driftScore }
+    });
+    if (this.hooks.onMemorySnapshot) {
+      await this.hooks.onMemorySnapshot(snapshot);
+    }
   }
 
   private async emit(event: KernelEvent): Promise<void> {

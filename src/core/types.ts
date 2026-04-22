@@ -57,6 +57,12 @@ export interface KernelDecision {
     passed: boolean;
     score: number;
   };
+  memorySnapshot?: {
+    version: string;
+    summary: string;
+    driftScore?: number;
+    memoryEntryCount: number;
+  };
 }
 
 export interface KernelEvent {
@@ -72,7 +78,9 @@ export interface KernelEvent {
     | "identity_drift_corrected"
     | "identity_self_check"
     | "identity_conflict_detected"
-    | "identity_injected";
+    | "identity_injected"
+    | "memory_compacted"
+    | "memory_compaction_failed";
   timestamp: string;
   sessionId: string;
   detail?: Record<string, unknown>;
@@ -138,6 +146,47 @@ export interface KernelConfig {
   identity?: {
     drift?: IdentityDriftConfig;
   };
+  memory?: MemoryConfig;
+}
+
+export interface KernelStorageAdapter {
+  saveSnapshot(snapshot: MemorySnapshot): Promise<void>;
+  loadSnapshot(version: string): Promise<MemorySnapshot | null>;
+  listSnapshots(): Promise<Array<{ version: string; createdAt: string; tokenCount: number }>>;
+  deleteSnapshot(version: string): Promise<void>;
+  saveMemoryCandidates(candidates: MemoryCandidate[]): Promise<void>;
+  loadMemoryCandidates(): Promise<MemoryCandidate[]>;
+}
+
+export interface MemoryConfig {
+  maxWindowMessages?: number;
+  keepLastMessages?: number;
+  compactionIntervalDecisions?: number;
+  maxSnapshots?: number;
+  autoCompactBuffer?: number;
+  storage?: KernelStorageAdapter;
+}
+
+export interface MemorySnapshot {
+  version: string;
+  parent: string | null;
+  summary: string;
+  memoryEntries: MemoryCandidate[];
+  createdAt: string;
+  driftScore?: number;
+  tokenCount: number;
+  messagesCompacted: number;
+  driftVerdict?: DriftVerdict;
+}
+
+export interface MemoryDiff {
+  from: string;
+  to: string;
+  added: MemoryCandidate[];
+  removed: string[];
+  modified: Array<{ id: string; delta: string }>;
+  driftDetected: boolean;
+  tokensSaved: number;
 }
 
 export interface AuditConfig {
@@ -163,6 +212,16 @@ export interface KernelHooks {
    * Called when self-check is triggered. Should return the model's answer to the question.
    */
   onSelfCheck?: (question: SelfCheckQuestion) => Promise<SelfCheckResponse>;
+  /**
+   * Called during compaction to get a summary from the LLM.
+   * The harness provides the actual LLM call here.
+   * If not provided, a simple truncation fallback is used.
+   */
+  onSummarize?: (messages: Array<{ role: string; content: string }>, prompt: string) => Promise<string>;
+  /**
+   * Called after a new memory snapshot is produced.
+   */
+  onMemorySnapshot?: (snapshot: MemorySnapshot) => void | Promise<void>;
 }
 
 

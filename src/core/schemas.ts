@@ -63,6 +63,15 @@ const identityDriftConfigSchema = z.object({
   constitutionStatements: z.array(constitutionStatementSchema).optional()
 });
 
+const memoryConfigSchema = z.object({
+  maxWindowMessages: z.number().int().positive().default(500),
+  keepLastMessages: z.number().int().positive().default(50),
+  compactionIntervalDecisions: z.number().int().nonnegative().default(50),
+  maxSnapshots: z.number().int().nonnegative().default(20),
+  autoCompactBuffer: z.number().int().positive().optional(),
+  // storage adapter is not schema-validated (interface only)
+});
+
 export const kernelConfigSchema = z.object({
   router: z.object({
     tokenCompressionThreshold: z.number().int().positive().default(10000),
@@ -98,7 +107,8 @@ export const kernelConfigSchema = z.object({
   }),
   identity: z.object({
     drift: identityDriftConfigSchema.optional()
-  }).optional()
+  }).optional(),
+  memory: memoryConfigSchema.optional()
 });
 
 export type KernelConfigSchema = z.infer<typeof kernelConfigSchema>;
