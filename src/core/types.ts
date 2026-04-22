@@ -50,6 +50,13 @@ export interface KernelDecision {
   policyVerdicts: Record<string, PolicyVerdict>;
   memoryCandidates: MemoryCandidate[];
   actions: KernelAction[];
+  driftVerdict?: DriftVerdict;
+  identityInjection?: string;
+  selfCheckResult?: {
+    questionId: string;
+    passed: boolean;
+    score: number;
+  };
 }
 
 export interface KernelEvent {
@@ -60,7 +67,12 @@ export interface KernelEvent {
     | "routed"
     | "compressed"
     | "completed"
-    | "failed";
+    | "failed"
+    | "identity_drift_detected"
+    | "identity_drift_corrected"
+    | "identity_self_check"
+    | "identity_conflict_detected"
+    | "identity_injected";
   timestamp: string;
   sessionId: string;
   detail?: Record<string, unknown>;
@@ -123,6 +135,9 @@ export interface KernelConfig {
   router: RouterConfig;
   policy: PolicyConfig;
   audit?: AuditConfig;
+  identity?: {
+    drift?: IdentityDriftConfig;
+  };
 }
 
 export interface AuditConfig {
@@ -135,10 +150,21 @@ export interface AuditConfig {
 export interface KernelHooks {
   onEvent?: (event: KernelEvent) => void | Promise<void>;
   onMemoryCandidates?: (candidates: MemoryCandidate[], input: KernelInput) => void | Promise<void>;
+  /**
+   * Called when drift is detected and constitution is about to be injected.
+   * Receives the drift verdict and the injection text. Return false to skip injection.
+   */
+  onIdentityInjection?: (verdict: DriftVerdict, injectionText: string) => void | Promise<void> | boolean;
+  /**
+   * Called when a memory candidate conflicts with the agent's identity constitution.
+   */
+  onIdentityConflict?: (conflict: ConflictVerdict, candidate: MemoryCandidate) => void | Promise<void>;
+  /**
+   * Called when self-check is triggered. Should return the model's answer to the question.
+   */
+  onSelfCheck?: (question: SelfCheckQuestion) => Promise<SelfCheckResponse>;
 }
 
-// Re-export compaction types
-export type { CompactionConfig, CompactionResult, TokenWarningState } from "./compaction.js";
 
 // Re-export new module types
 export type { ContextEntry, DeduplicationResult, DeduplicationConfig } from "./deduplication.js";
@@ -148,4 +174,111 @@ export type { ContextSnapshot, SnapshotStore } from "./snapshots.js";
 export type { SharedMemoryPool, SharedMemoryRegistry, SharedEntry, PublishResult } from "./shared-memory.js";
 export type { PIIAction, PIIType, PIIDetection, PIIGuardConfig, PIIGuardResult } from "./pii-guard.js";
 export type { AuditEntry, AuditTrail, AuditQuery, AuditQueryResult } from "./audit-trail.js";
+
+// --- Identity Drift Guard types ---
+
+export type ConstitutionWeight = "critical" | "high" | "medium";
+
+export interface ConstitutionStatement {
+  id: string;
+  text: string;
+  weight: ConstitutionWeight;
+  category: "identity" | "values" | "voice" | "boundaries" | "rules";
+  description?: string;
+}
+
+export interface IdentitySnapshot {
+  version: string;
+  statements: ConstitutionStatement[];
+  createdAt: string;
+}
+
+export interface DriftVerdict {
+  drifted: boolean;
+  score: number; // 0 = aligned, 1 = fully drifted
+  violatingStatements: Array<{
+    statement: string;
+    driftReason: string;
+    severity: "low" | "medium" | "high";
+  }>;
+  conflictSignals: string[];
+  triggerMatched: string[];
+  recommendedActions: Array<"inject_constitution" | "warn" | "block" | "snapshot" | "alert">;
+}
+
+export interface SelfCheckQuestion {
+  id: string;
+  question: string;
+  weight: ConstitutionWeight;
+  expectedConcepts: string[];
+}
+
+export interface SelfCheckResponse {
+  questionId: string;
+  answer: string;
+  timestamp: string;
+}
+
+export type EmbeddingProvider = (text: string) => Promise<number[]>;
+
+export interface IdentityConflict {
+  hasConflict: boolean;
+  conflictingText: string;
+  violatingStatements: Array<{
+    statement: string;
+    category: ConstitutionStatement["category"];
+  }>;
+  resolution: "flag" | "block" | "merge" | "reject";
+}
+
+export interface ConflictVerdict {
+  hasConflict: boolean;
+  conflictingText: string;
+  violatingStatements: Array<{
+    statement: string;
+    category: ConstitutionStatement["category"];
+  }>;
+  resolution: "flag" | "block" | "merge" | "reject";
+}
+
+export interface DriftEvent {
+  event: "identity_drift_detected" | "identity_drift_corrected" | "identity_self_check" | "identity_conflict_detected";
+  timestamp: string;
+  sessionId: string;
+  verdict?: DriftVerdict;
+  conflict?: IdentityConflict;
+  selfCheckResult?: {
+    questionId: string;
+    passed: boolean;
+    score: number;
+  };
+}
+
+export interface IdentityDriftConfig {
+  /** Enable identity drift detection */
+  enabled: boolean;
+  /** Drift score threshold (0-1) to trigger constitution injection */
+  driftThreshold: number;
+  /** Score at which to alert (but not block) */
+  alertThreshold: number;
+  /** How far back in messages to look */
+  lookbackMessages?: number;
+  /** Minimum alignment score (0-1) to consider a statement aligned */
+  alignmentThreshold?: number;
+  /** Trigger patterns that fast-pass trigger drift check */
+  driftTriggers?: string[];
+  /** Patterns that suggest memory/identity conflicts */
+  conflictTriggers?: string[];
+  /** Take a snapshot when drift is corrected */
+  autoSnapshot?: boolean;
+  /** Custom self-check questions */
+  selfCheckQuestions?: SelfCheckQuestion[];
+  /** Self-check interval in decisions (0 = disabled) */
+  selfCheckInterval?: number;
+  /** Core identity statements for drift detection */
+  constitutionStatements?: ConstitutionStatement[];
+}
+
+// Re-export compaction types
+export type { CompactionConfig, CompactionResult, TokenWarningState } from "./compaction.js";
 export type { BulkInsertResult, BulkDeleteResult, BulkQueryResult, ContextStore } from "./bulk.js";

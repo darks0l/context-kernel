@@ -11,3 +11,4 @@ export * from "./shared-memory.js";
 export * from "./pii-guard.js";
 export * from "./audit-trail.js";
 export * from "./bulk.js";
+export * from "./identity-drift.js";

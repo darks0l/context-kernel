@@ -1,5 +1,13 @@
 import { kernelConfigSchema } from "./schemas.js";
 import { scanForPII } from "./pii-guard.js";
+import {
+  checkDrift,
+  detectIdentityConflict,
+  buildIdentitySnapshot,
+  buildConstitutionInjection,
+  evaluateSelfCheck,
+  DEFAULT_SELF_CHECK_QUESTIONS,
+} from "./identity-drift.js";
 import type {
   KernelConfig,
   KernelDecision,
@@ -12,7 +20,11 @@ import type {
   InputKind,
   KernelAction,
   PolicyVerdict,
-  PolicyRule
+  PolicyRule,
+  DriftVerdict,
+  IdentitySnapshot,
+  IdentityDriftConfig,
+  SelfCheckQuestion,
 } from "./types.js";
 import { AuditPipeline, JsonlAuditBackend, WebhookAuditBackend } from "../audit/index.js";
 
@@ -20,12 +32,14 @@ export class ContextKernel {
   private readonly config: KernelConfig;
   private readonly hooks: KernelHooks;
   private readonly audit: AuditPipeline;
+  private decisionCount = 0;
+  private identitySnapshot: IdentitySnapshot | null = null;
+  private readonly driftConfig: IdentityDriftConfig | null;
 
   constructor(config: KernelConfig, hooks: KernelHooks = {}) {
     this.config = kernelConfigSchema.parse(config);
     this.hooks = hooks;
 
-    // Wire up audit pipeline from config
     const backends = [];
     if (this.config.audit?.backend === "jsonl" && this.config.audit.path) {
       backends.push(new JsonlAuditBackend(this.config.audit.path));
@@ -33,6 +47,14 @@ export class ContextKernel {
       backends.push(new WebhookAuditBackend(this.config.audit.url, this.config.audit.headers));
     }
     this.audit = new AuditPipeline(backends);
+
+    this.driftConfig = this.config.identity?.drift ?? null;
+    if (this.driftConfig?.enabled && this.driftConfig.constitutionStatements?.length) {
+      this.identitySnapshot = buildIdentitySnapshot(
+        this.driftConfig.constitutionStatements,
+        "1.0"
+      );
+    }
   }
 
   async decide(input: KernelInput): Promise<KernelDecision> {
@@ -78,12 +100,108 @@ export class ContextKernel {
       detail: { route }
     });
 
-    const memoryCandidates = this.extractMemoryCandidates(input, taskType);
-    if (memoryCandidates.length && this.hooks.onMemoryCandidates) {
-      await this.hooks.onMemoryCandidates(memoryCandidates, input);
+    // Identity drift check
+    let driftVerdict: DriftVerdict | undefined;
+    let identityInjection: string | undefined;
+
+    if (this.driftConfig?.enabled && this.identitySnapshot) {
+      driftVerdict = checkDrift(input.messages, this.identitySnapshot, this.driftConfig);
+
+      if (driftVerdict.drifted && driftVerdict.recommendedActions.includes("inject_constitution")) {
+        identityInjection = buildConstitutionInjection(this.identitySnapshot, driftVerdict);
+
+        await this.emit({
+          event: "identity_drift_detected",
+          timestamp: new Date().toISOString(),
+          sessionId: input.sessionId,
+          detail: { score: driftVerdict.score, actions: driftVerdict.recommendedActions }
+        });
+
+        if (this.hooks.onIdentityInjection) {
+          const result = await this.hooks.onIdentityInjection(driftVerdict, identityInjection);
+          if (result === false) identityInjection = undefined;
+        }
+      }
     }
 
-    const actions = this.planActions(input, blocked?.[0]);
+    // Memory candidate extraction with identity conflict detection
+    const memoryCandidates = this.extractMemoryCandidates(input, taskType);
+
+    if (memoryCandidates.length) {
+      const processedCandidates: MemoryCandidate[] = [];
+
+      for (const candidate of memoryCandidates) {
+        const conflict = this.identitySnapshot && this.driftConfig
+          ? detectIdentityConflict(candidate.summary, this.identitySnapshot, this.driftConfig)
+          : null;
+
+        if (conflict?.hasConflict) {
+          await this.emit({
+            event: "identity_conflict_detected",
+            timestamp: new Date().toISOString(),
+            sessionId: input.sessionId,
+            detail: { conflictingText: conflict.conflictingText }
+          });
+          if (this.hooks.onIdentityConflict) {
+            await this.hooks.onIdentityConflict(conflict, candidate);
+          }
+          processedCandidates.push({ ...candidate, tags: [...candidate.tags, "identity_conflict_flagged"] });
+        } else {
+          processedCandidates.push(candidate);
+        }
+      }
+
+      if (processedCandidates.length && this.hooks.onMemoryCandidates) {
+        await this.hooks.onMemoryCandidates(processedCandidates, input);
+      }
+    }
+
+    // Periodic self-check
+    let selfCheckResult: KernelDecision["selfCheckResult"] | undefined;
+    const selfCheckInterval = this.driftConfig?.selfCheckInterval ?? 0;
+
+    if (selfCheckInterval > 0 && this.decisionCount > 0 && this.decisionCount % selfCheckInterval === 0) {
+      const questions = this.driftConfig?.selfCheckQuestions ?? DEFAULT_SELF_CHECK_QUESTIONS;
+      const question = questions[this.decisionCount % questions.length];
+
+      if (this.hooks.onSelfCheck) {
+        const response = await this.hooks.onSelfCheck(question);
+        const baselineText = this.identitySnapshot
+          ? this.identitySnapshot.statements.map((s) => s.text).join(" ")
+          : "";
+        const result = evaluateSelfCheck(response, question, baselineText);
+        selfCheckResult = { questionId: question.id, passed: result.passed, score: result.score };
+
+        await this.emit({
+          event: "identity_self_check",
+          timestamp: new Date().toISOString(),
+          sessionId: input.sessionId,
+          detail: { questionId: question.id, passed: result.passed, score: result.score }
+        });
+
+        if (!result.passed && this.hooks.onIdentityInjection && this.identitySnapshot) {
+          const violatingStatements = result.flags.map((f) => ({
+            statement: f,
+            driftReason: f,
+            severity: "high" as const
+          }));
+          const recoveryVerdict: DriftVerdict = {
+            drifted: true,
+            score: 1 - result.score,
+            violatingStatements,
+            conflictSignals: [],
+            triggerMatched: [],
+            recommendedActions: ["inject_constitution"],
+          };
+          const recoveryInjection = buildConstitutionInjection(this.identitySnapshot, recoveryVerdict);
+          await this.hooks.onIdentityInjection(recoveryVerdict, recoveryInjection);
+        }
+      }
+    }
+
+    this.decisionCount++;
+
+    const actions = this.planActions(input, blocked?.[0], identityInjection);
 
     const decision: KernelDecision = {
       inputKind,
@@ -93,14 +211,17 @@ export class ContextKernel {
       compressionReason: compress ? "token budget exceeded" : undefined,
       policyVerdicts,
       memoryCandidates,
-      actions
+      actions,
+      driftVerdict,
+      identityInjection,
+      selfCheckResult,
     };
 
     await this.emit({
       event: "completed",
       timestamp: new Date().toISOString(),
       sessionId: input.sessionId,
-      detail: { route, compress, actionCount: actions.length }
+      detail: { route, compress, actionCount: actions.length, decisionCount: this.decisionCount }
     });
 
     await this.audit.flush();
@@ -263,27 +384,16 @@ export class ContextKernel {
     return candidates;
   }
 
-  private planActions(input: KernelInput, blockedGuard?: string): KernelAction[] {
+  private planActions(input: KernelInput, blockedGuard?: string, identityInjection?: string): KernelAction[] {
     if (blockedGuard) {
-      return [
-        {
-          type: "send",
-          payload: {
-            status: "blocked",
-            guard: blockedGuard
-          }
-        }
-      ];
+      return [{ type: "send", payload: { status: "blocked", guard: blockedGuard } }];
     }
 
-    return [
-      {
-        type: "tool_call",
-        payload: {
-          operation: "model_infer",
-          input
-        }
-      }
-    ];
+    const payload: Record<string, unknown> = { operation: "model_infer", input };
+    if (identityInjection) {
+      payload.identityInjection = identityInjection;
+    }
+
+    return [{ type: "tool_call", payload }];
   }
 }
