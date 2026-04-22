@@ -1,6 +1,6 @@
 {
   "name": "context-kernel",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Platform-agnostic context kernel for routing, budget management, policy guards, and audit trails.",
   "type": "module",
   "main": "dist/index.js",
