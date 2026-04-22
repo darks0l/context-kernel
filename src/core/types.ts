@@ -102,6 +102,14 @@ export type PolicyRule =
       patterns: string[];
       severity?: "low" | "medium" | "high";
       reason?: string;
+    }
+  | {
+      id: string;
+      kind: "pii_guard";
+      action: "redact" | "warn" | "block";
+      types?: Array<"email" | "phone" | "ssn">;
+      severity?: "low" | "medium" | "high";
+      reason?: string;
     };
 
 export interface PolicyConfig {
@@ -128,3 +136,16 @@ export interface KernelHooks {
   onEvent?: (event: KernelEvent) => void | Promise<void>;
   onMemoryCandidates?: (candidates: MemoryCandidate[], input: KernelInput) => void | Promise<void>;
 }
+
+// Re-export compaction types
+export type { CompactionConfig, CompactionResult, TokenWarningState } from "./compaction.js";
+
+// Re-export new module types
+export type { ContextEntry, DeduplicationResult, DeduplicationConfig } from "./deduplication.js";
+export type { ScoredEntry, PriorityScoringConfig, UsageRecord } from "./priority.js";
+export type { EvictionPolicy, EvictionConfig, EvictionAccessRecord, EvictionResult } from "./eviction.js";
+export type { ContextSnapshot, SnapshotStore } from "./snapshots.js";
+export type { SharedMemoryPool, SharedMemoryRegistry, SharedEntry, PublishResult } from "./shared-memory.js";
+export type { PIIAction, PIIType, PIIDetection, PIIGuardConfig, PIIGuardResult } from "./pii-guard.js";
+export type { AuditEntry, AuditTrail, AuditQuery, AuditQueryResult } from "./audit-trail.js";
+export type { BulkInsertResult, BulkDeleteResult, BulkQueryResult, ContextStore } from "./bulk.js";

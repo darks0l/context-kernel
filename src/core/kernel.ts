@@ -1,4 +1,5 @@
 import { kernelConfigSchema } from "./schemas.js";
+import { scanForPII } from "./pii-guard.js";
 import type {
   KernelConfig,
   KernelDecision,
@@ -193,6 +194,18 @@ export class ContextKernel {
       return inQuiet
         ? { allowed: false, reason: rule.reason ?? "quiet hours rule active", ruleId: rule.id, severity: rule.severity ?? "low" }
         : { allowed: true, ruleId: rule.id, severity: rule.severity };
+    }
+
+    if (rule.kind === "pii_guard") {
+      const piiResult = scanForPII(combined, { action: rule.action, types: rule.types });
+      if (!piiResult.detected) {
+        return { allowed: true, ruleId: rule.id, severity: rule.severity };
+      }
+      const piiTypes = [...new Set(piiResult.detections.map((d) => d.type))].join(", ");
+      if (rule.action === "block") {
+        return { allowed: false, reason: rule.reason ?? `PII detected: ${piiTypes}`, ruleId: rule.id, severity: rule.severity ?? "high" };
+      }
+      return { allowed: true, reason: rule.reason ?? `PII detected (${rule.action}): ${piiTypes}`, ruleId: rule.id, severity: rule.severity ?? "medium" };
     }
 
     const regex = new RegExp(rule.patterns.join("|"), "i");

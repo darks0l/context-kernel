@@ -1,3 +1,13 @@
 export * from "./types.js";
 export * from "./schemas.js";
 export * from "./kernel.js";
+export * from "./compaction.js";
+export { buildExtractMemoryPrompt, buildConsolidationPrompt } from "./memory-prompts.js";
+export * from "./deduplication.js";
+export * from "./priority.js";
+export * from "./eviction.js";
+export * from "./snapshots.js";
+export * from "./shared-memory.js";
+export * from "./pii-guard.js";
+export * from "./audit-trail.js";
+export * from "./bulk.js";

@@ -25,6 +25,14 @@ const policyRuleSchema = z.discriminatedUnion("kind", [
     patterns: z.array(z.string()).min(1),
     severity: severitySchema.optional(),
     reason: z.string().optional()
+  }),
+  z.object({
+    id: z.string().min(1),
+    kind: z.literal("pii_guard"),
+    action: z.enum(["redact", "warn", "block"]),
+    types: z.array(z.enum(["email", "phone", "ssn"])).optional(),
+    severity: severitySchema.optional(),
+    reason: z.string().optional()
   })
 ]);
 
