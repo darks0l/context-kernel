@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { MemoryManager, defaultMemoryConfig } from "../src/core/memory-manager.js";
 import type { CompactionResult } from "../src/core/compaction.js";
+import type { KernelStorageAdapter, MemorySnapshot, MemoryCandidate } from "../src/core/types.js";
 
 const makeMessages = (n: number) =>
   Array.from({ length: n }, (_, i) => ({
@@ -197,6 +198,137 @@ describe("MemoryManager", () => {
       expect(defaultMemoryConfig.keepLastMessages).toBe(50);
       expect(defaultMemoryConfig.compactionIntervalDecisions).toBe(50);
       expect(defaultMemoryConfig.maxSnapshots).toBe(20);
+    });
+  });
+
+  describe("storage adapter lifecycle", () => {
+    function makeCandidate(override: Partial<MemoryCandidate> = {}): MemoryCandidate {
+      return {
+        summary: "test candidate",
+        tags: ["test"],
+        priority: "medium" as const,
+        confidence: 0.8,
+        source: { messageIndexes: [0], strategy: "decision" as const },
+        ...override,
+      };
+    }
+
+    function makeSnapshot(version: string, overrides: Partial<MemorySnapshot> = {}): MemorySnapshot {
+      return {
+        version,
+        parent: null,
+        summary: `snapshot ${version}`,
+        memoryEntries: [],
+        createdAt: new Date().toISOString(),
+        tokenCount: 100,
+        messagesCompacted: 10,
+        ...overrides,
+      };
+    }
+
+    it("loads existing snapshots from storage adapter on construction", async () => {
+      const storedSnapshots = [
+        makeSnapshot("0.1.0", { parent: "0.0.0", createdAt: "2026-01-01T00:00:00Z" }),
+        makeSnapshot("0.2.0", { parent: "0.1.0", createdAt: "2026-01-02T00:00:00Z" }),
+      ];
+
+      const mockStorage: KernelStorageAdapter = {
+        saveSnapshot: vi.fn().mockResolvedValue(undefined),
+        loadSnapshot: vi.fn().mockImplementation(async (version: string) => {
+          return storedSnapshots.find((s) => s.version === version) ?? null;
+        }),
+        listSnapshots: vi.fn().mockResolvedValue(
+          storedSnapshots.map((s) => ({ version: s.version, createdAt: s.createdAt, tokenCount: s.tokenCount })),
+        ),
+        deleteSnapshot: vi.fn().mockResolvedValue(undefined),
+        saveMemoryCandidates: vi.fn().mockResolvedValue(undefined),
+        loadMemoryCandidates: vi.fn().mockResolvedValue([]),
+      };
+
+      const mm = new MemoryManager(
+        { ...defaultMemoryConfig, maxWindowMessages: 10, keepLastMessages: 3, compactionIntervalDecisions: 0, storage: mockStorage },
+        null,
+        { contextWindow: 100_000, maxOutputTokens: 20_000, autoCompactEnabled: true },
+      );
+
+      // Give the async load a tick to complete
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(mockStorage.listSnapshots).toHaveBeenCalledTimes(1);
+      expect(mockStorage.loadSnapshot).toHaveBeenCalledWith("0.1.0");
+      expect(mockStorage.loadSnapshot).toHaveBeenCalledWith("0.2.0");
+
+      const versions = mm.getSnapshotVersions();
+      expect(versions).toContain("0.1.0");
+      expect(versions).toContain("0.2.0");
+    });
+
+    it("restores version to the highest loaded snapshot on construction", async () => {
+      const storedSnapshots = [
+        makeSnapshot("0.1.0", { parent: "0.0.0", createdAt: "2026-01-01T00:00:00Z" }),
+        makeSnapshot("0.2.0", { parent: "0.1.0", createdAt: "2026-01-02T00:00:00Z" }),
+      ];
+
+      const mockStorage: KernelStorageAdapter = {
+        saveSnapshot: vi.fn().mockResolvedValue(undefined),
+        loadSnapshot: vi.fn().mockImplementation(async (version: string) => {
+          return storedSnapshots.find((s) => s.version === version) ?? null;
+        }),
+        listSnapshots: vi.fn().mockResolvedValue(
+          storedSnapshots.map((s) => ({ version: s.version, createdAt: s.createdAt, tokenCount: s.tokenCount })),
+        ),
+        deleteSnapshot: vi.fn().mockResolvedValue(undefined),
+        saveMemoryCandidates: vi.fn().mockResolvedValue(undefined),
+        loadMemoryCandidates: vi.fn().mockResolvedValue([]),
+      };
+
+      const mm = new MemoryManager(
+        { ...defaultMemoryConfig, maxWindowMessages: 10, keepLastMessages: 3, compactionIntervalDecisions: 0, storage: mockStorage },
+        null,
+        { contextWindow: 100_000, maxOutputTokens: 20_000, autoCompactEnabled: true },
+      );
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Current version should be the highest loaded
+      expect(mm.getVersion()).toBe("0.2.0");
+      expect(mm.getLatestSnapshot()).not.toBeNull();
+      expect(mm.getLatestSnapshot()!.version).toBe("0.2.0");
+    });
+
+    it("continues normally with no storage adapter (no crash)", () => {
+      const mm = new MemoryManager(
+        { ...defaultMemoryConfig, maxWindowMessages: 10, keepLastMessages: 3, compactionIntervalDecisions: 0 },
+        null,
+        { contextWindow: 100_000, maxOutputTokens: 20_000, autoCompactEnabled: true },
+      );
+      expect(mm.getVersion()).toBe("0.0.0");
+      expect(mm.getSnapshotVersions()).toHaveLength(0);
+    });
+
+    it("swallows storage load errors gracefully", async () => {
+      const mockStorage: KernelStorageAdapter = {
+        saveSnapshot: vi.fn().mockResolvedValue(undefined),
+        loadSnapshot: vi.fn().mockRejectedValue(new Error("disk error")),
+        listSnapshots: vi.fn().mockRejectedValue(new Error("disk error")),
+        deleteSnapshot: vi.fn().mockResolvedValue(undefined),
+        saveMemoryCandidates: vi.fn().mockResolvedValue(undefined),
+        loadMemoryCandidates: vi.fn().mockResolvedValue([]),
+      };
+
+      // Should not throw
+      const mm = new MemoryManager(
+        { ...defaultMemoryConfig, maxWindowMessages: 10, keepLastMessages: 3, compactionIntervalDecisions: 0, storage: mockStorage },
+        null,
+        { contextWindow: 100_000, maxOutputTokens: 20_000, autoCompactEnabled: true },
+      );
+
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Kernel must remain operational
+      expect(mm.getVersion()).toBe("0.0.0");
+      mm.ingest(makeMessages(3));
+      expect(mm.getWindow()).toHaveLength(3);
     });
   });
 });

@@ -25,6 +25,10 @@
       "types": "./dist/adapters/http/index.d.ts",
       "import": "./dist/adapters/http/index.js"
     },
+    "./adapters/file": {
+      "types": "./dist/adapters/file/index.d.ts",
+      "import": "./dist/adapters/file/index.js"
+    },
     "./schemas": {
       "types": "./dist/core/schemas.d.ts",
       "import": "./dist/core/schemas.js"
@@ -71,5 +75,13 @@
     "README.md",
     "assets/darksol-banner.png",
     "dist/**"
+  ],
+  "keywords": [
+    "agent",
+    "routing",
+    "context",
+    "policy",
+    "openclaw",
+    "storage-adapter"
   ]
 }

@@ -1,0 +1,37 @@
+{
+  "count": 5,
+  "lastImprovement": "Add comprehensive adapter tests for HTTP and OpenClaw envelopes (10 tests) — bringing total test count to 180",
+  "version": "0.6.0",
+  "improvements": [
+    {
+      "iteration": 1,
+      "improvement": "FileStorageAdapter — KernelStorageAdapter implementation for filesystem persistence",
+      "tests": 12,
+      "totalTests": 133
+    },
+    {
+      "iteration": 2,
+      "improvement": "Export FileStorageAdapter from package root + extend CLI with --storage, --snapshots, --delete-snapshot flags",
+      "tests": 133,
+      "totalTests": 133
+    },
+    {
+      "iteration": 3,
+      "improvement": "MemoryManager loads persisted snapshots from storage adapter on construction — enabling snapshot continuity across process restarts",
+      "tests": 137,
+      "totalTests": 137
+    },
+    {
+      "iteration": 4,
+      "improvement": "Add 33-test suite for compaction module — covering prompt construction, summary formatting, token thresholds, and warning state calculations",
+      "tests": 170,
+      "totalTests": 170
+    },
+    {
+      "iteration": 5,
+      "improvement": "Add comprehensive adapter tests for HTTP and OpenClaw envelopes (10 tests) — bringing total test count to 180",
+      "tests": 180,
+      "totalTests": 180
+    }
+  ]
+}

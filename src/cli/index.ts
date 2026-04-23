@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import { ContextKernel } from "../core/kernel.js";
+import { FileStorageAdapter } from "../adapters/file/index.js";
 import type { KernelConfig, KernelInput } from "../core/types.js";
 
 function parseArgs() {
@@ -16,14 +17,34 @@ function parseArgs() {
 async function main() {
   const args = parseArgs();
 
+  // Snapshot management commands
+  if (args.snapshots) {
+    const storage = new FileStorageAdapter({ dir: args.snapshots });
+    const list = await storage.listSnapshots();
+    console.log(JSON.stringify({ snapshots: list }, null, 2));
+    return;
+  }
+
+  if (args.deleteSnapshot) {
+    const storage = new FileStorageAdapter({ dir: args.storage ?? "./kernel-data" });
+    await storage.deleteSnapshot(args.deleteSnapshot);
+    console.log(JSON.stringify({ deleted: args.deleteSnapshot }));
+    return;
+  }
+
   if (!args.config || !args.input) {
-    console.error("Usage: context-kernel --config ./kernel.config.json --input ./input.json");
+    console.error("Usage: context-kernel --config ./kernel.config.json --input ./input.json [--storage ./data-dir]");
+    console.error("       context-kernel --snapshots ./data-dir   # list snapshots");
+    console.error("       context-kernel --delete-snapshot <version> [--storage ./data-dir]");
     process.exit(1);
   }
 
   const config = JSON.parse(readFileSync(args.config, "utf8")) as KernelConfig;
   const input = JSON.parse(readFileSync(args.input, "utf8")) as KernelInput;
 
+  if (args.storage) {
+    config.memory = { ...config.memory, storage: new FileStorageAdapter({ dir: args.storage }) };
+  }
   const kernel = new ContextKernel(config, {
     onEvent: (event) => {
       if (!args.quiet) console.log(JSON.stringify(event));
