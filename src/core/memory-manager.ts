@@ -55,11 +55,56 @@ export class MemoryManager {
     private driftConfig: IdentityDriftConfig | null,
     private compactionConfig: CompactionConfig,
   ) {
-    const cfg = { ...defaultMemoryConfig, ...memoryConfig };
-    this.memoryConfig = cfg as Required<MemoryConfig>;
+    // Apply defaults — user-provided values override defaults
+    this.memoryConfig = { ...defaultMemoryConfig, ...memoryConfig } as Required<MemoryConfig>;
     if (this.driftConfig?.enabled && this.driftConfig.constitutionStatements?.length) {
       this.identitySnapshot = buildIdentitySnapshot(this.driftConfig.constitutionStatements, "1.0");
     }
+    // Load persisted snapshots from storage adapter (non-blocking, best-effort)
+    this.loadFromStorage().catch((err) => {
+      // Swallow: storage is best-effort, kernel must remain operational without it
+    });
+  }
+
+  /**
+   * Load existing snapshots from storage adapter.
+   * Called once on construction to restore state from prior runs.
+   * Errors are swallowed — storage is optional.
+   */
+  private async loadFromStorage(): Promise<void> {
+    const { storage } = this.memoryConfig;
+    if (!storage) return;
+
+    try {
+      const snapshots = await storage.listSnapshots();
+      for (const meta of snapshots) {
+        const snap = await storage.loadSnapshot(meta.version);
+        if (snap) {
+          this.snapshotStore.set(snap.version, snap);
+          // Track the highest version as current
+          if (this.compareVersions(snap.version, this.currentVersion) > 0) {
+            this.currentVersion = snap.version;
+            this.parentVersion = snap.parent;
+          }
+        }
+      }
+    } catch {
+      // Storage read failed — proceed without restored state
+    }
+  }
+
+  /**
+   * Compare two semver strings. Returns positive if a > b, negative if a < b, 0 if equal.
+   */
+  private compareVersions(a: string, b: string): number {
+    const pa = a.split(".").map(Number);
+    const pb = b.split(".").map(Number);
+    for (let i = 0; i < 3; i++) {
+      const da = pa[i] ?? 0;
+      const db = pb[i] ?? 0;
+      if (da !== db) return da - db;
+    }
+    return 0;
   }
 
   // ─── Public API ───────────────────────────────────────────────────────────

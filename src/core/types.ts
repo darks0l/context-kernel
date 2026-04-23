@@ -164,6 +164,8 @@ export interface MemoryConfig {
   compactionIntervalDecisions?: number;
   maxSnapshots?: number;
   autoCompactBuffer?: number;
+  /** Enable auto-compaction when token threshold is reached. Default: true. */
+  autoCompactEnabled?: boolean;
   storage?: KernelStorageAdapter;
 }
 

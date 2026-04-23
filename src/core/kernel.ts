@@ -63,13 +63,12 @@ export class ContextKernel {
       );
     }
 
-    // Memory manager — merged config with defaults
-    const memCfg = { ...defaultMemoryConfig, ...config.memory };
-    this.memoryConfig = memCfg as Required<import("./memory-manager.js").MemoryConfig>;
+    // Memory manager config — let MemoryManager apply its own defaults
+    this.memoryConfig = (config.memory ?? {}) as Required<import("./memory-manager.js").MemoryConfig>;
     this.compactionConfig = {
       contextWindow: this.config.router.tokenCompressionThreshold,
       maxOutputTokens: 20_000,
-      autoCompactEnabled: true,
+      autoCompactEnabled: this.memoryConfig.autoCompactEnabled ?? true,
     };
     this.memory = new MemoryManager(this.memoryConfig, this.driftConfig, this.compactionConfig);
   }
@@ -430,10 +429,17 @@ export class ContextKernel {
       return { allowed: true, reason: rule.reason ?? `PII detected (${rule.action}): ${piiTypes}`, ruleId: rule.id, severity: rule.severity ?? "medium" };
     }
 
-    const regex = new RegExp(rule.patterns.join("|"), "i");
-    return regex.test(combined)
-      ? { allowed: false, reason: rule.reason ?? "secret regex rule matched", ruleId: rule.id, severity: rule.severity ?? "high" }
-      : { allowed: true, ruleId: rule.id, severity: rule.severity };
+    if (rule.kind === "secret_regex") {
+      const regex = new RegExp(rule.patterns.join("|"), "i");
+      return regex.test(combined)
+        ? { allowed: false, reason: rule.reason ?? "secret regex rule matched", ruleId: rule.id, severity: rule.severity ?? "high" }
+        : { allowed: true, ruleId: rule.id, severity: rule.severity };
+    }
+
+    // Exhaustive check — all PolicyRule variants are handled above.
+    // Default deny for any unknown rule kind.
+    const _exhaustive: never = rule;
+    return { allowed: true, severity: "low" };
   }
 
   private extractMemoryCandidates(input: KernelInput, taskType: TaskType): MemoryCandidate[] {
