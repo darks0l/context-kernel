@@ -163,6 +163,8 @@ export interface MemoryConfig {
   keepLastMessages?: number;
   compactionIntervalDecisions?: number;
   maxSnapshots?: number;
+  /** Maximum age in ms before a snapshot is eligible for TTL eviction. Default: undefined (no TTL). */
+  snapshotTtlMs?: number;
   autoCompactBuffer?: number;
   /** Enable auto-compaction when token threshold is reached. Default: true. */
   autoCompactEnabled?: boolean;

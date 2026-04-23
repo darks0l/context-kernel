@@ -325,16 +325,31 @@ export class MemoryManager {
   }
 
   private async gcSnapshots(): Promise<void> {
-    const { storage, maxSnapshots } = this.memoryConfig;
-    if (!storage || maxSnapshots <= 0) return;
-    if (this.snapshotStore.size <= maxSnapshots) return;
+    const { storage, maxSnapshots, snapshotTtlMs } = this.memoryConfig;
+    if (!storage) return;
 
     const all = await storage.listSnapshots();
-    const toDelete = all
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-      .slice(0, this.snapshotStore.size - maxSnapshots);
+    const now = Date.now();
 
-    for (const { version } of toDelete) {
+    // TTL eviction — drop any snapshot older than snapshotTtlMs
+    const expiredVersions = new Set<string>();
+    if (snapshotTtlMs !== undefined && snapshotTtlMs > 0) {
+      for (const snap of all) {
+        const age = now - new Date(snap.createdAt).getTime();
+        if (age > snapshotTtlMs) expiredVersions.add(snap.version);
+      }
+    }
+
+    // Count-based eviction — keep at most maxSnapshots (oldest first)
+    if (maxSnapshots !== undefined && maxSnapshots > 0) {
+      const sorted = all
+        .filter((s) => !expiredVersions.has(s.version))
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      const toEvict = sorted.slice(0, Math.max(0, sorted.length - maxSnapshots));
+      for (const s of toEvict) expiredVersions.add(s.version);
+    }
+
+    for (const version of expiredVersions) {
       this.snapshotStore.delete(version);
       await storage.deleteSnapshot(version);
     }
