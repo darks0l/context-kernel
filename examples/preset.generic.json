@@ -10,7 +10,7 @@
       "textDefault": "text",
       "multimodal": "vision"
     }
-  }
+  },
   "policy": {
     "postOnlyMode": false,
     "blockedSecretPatterns": [

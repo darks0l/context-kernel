@@ -1,6 +1,6 @@
 {
   "name": "context-kernel",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Platform-agnostic context kernel for routing, budget management, policy guards, and audit trails.",
   "type": "module",
   "main": "dist/index.js",
@@ -43,13 +43,6 @@
     "pack:dry": "npm pack --dry-run",
     "release:check": "npm run lint && npm run test && npm run build && npm run pack:dry"
   },
-  "keywords": [
-    "agent",
-    "routing",
-    "context",
-    "policy",
-    "openclaw"
-  ],
   "author": "Darksol",
   "license": "MIT",
   "homepage": "https://github.com/darks0l/context-kernel#readme",
@@ -73,7 +66,7 @@
   "files": [
     "LICENSE",
     "README.md",
-    "assets/darksol-banner.png",
+    "assets/darksol-logo.svg",
     "dist/**"
   ],
   "keywords": [

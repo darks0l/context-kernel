@@ -14,7 +14,7 @@
       "codeHighContext": "premium",
       "premiumFallback": "premium"
     }
-  }
+  },
   "policy": {
     "postOnlyMode": false,
     "blockedSecretPatterns": [

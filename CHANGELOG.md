@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.1 - 2026-06-04
+
+### Changed -- Release polish + positioning cleanup
+- Repositioned the README around `context-kernel` as a pre-generation decision layer for agent runtimes.
+- Clarified what the package is, what it is not, and where it fits best.
+- Added `ROADMAP_v0.7.0.md` to capture the next clarity-focused release.
+- Fixed malformed example preset JSON files so they are safe to copy and validate.
+- Cleaned package metadata and corrected published asset references.
+- Switched the published logo asset to SVG to reduce package weight.
+
 ## 0.4.0 - 2026-04-22
 
 ### Added -- Context Intelligence Suite
